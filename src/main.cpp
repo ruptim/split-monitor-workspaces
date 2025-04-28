@@ -105,7 +105,7 @@ const std::string& getWorkspaceFromMonitor(const PHLMONITOR& monitor, const std:
 PHLMONITOR getCurrentMonitor()
 {
     // get last focused monitor, because some people switch monitors with a keybind while the cursor is on a different monitor
-    if (PHLMONITOR monitor = g_pCompositor->m_lastMonitor.lock()) {
+    if (PHLMONITOR monitor = g_pCompositor->m_pLastMonitor.lock()) {
         return monitor;
     }
     Debug::log(WARN, "[split-monitor-workspaces] Last monitor does not exist, falling back to cursor's monitor");
@@ -130,7 +130,7 @@ SDispatchResult splitCycleWorkspaces(const std::string& value)
     auto const workspaces = g_vMonitorWorkspaceMap[monitor->ID];
     int index = -1;
     for (int i = 0; i < g_workspaceCount; i++) {
-        if (workspaces[i] == monitor->activeWorkspace->m_name) {
+        if (workspaces[i] == monitor->activeWorkspace->m_szName) {
             index = i;
             break;
         }
@@ -168,7 +168,7 @@ SDispatchResult changeMonitor(bool quiet, const std::string& value)
 
     PHLMONITOR nextMonitor = nullptr;
 
-    uint64_t monitorCount = g_pCompositor->m_monitors.size();
+    uint64_t monitorCount = g_pCompositor->m_vMonitors.size();
 
     int const delta = getDelta(value);
     if (delta == 0) {
@@ -179,8 +179,8 @@ SDispatchResult changeMonitor(bool quiet, const std::string& value)
     // The index is used instead of the monitorID because using the monitorID won't work if monitors are removed or mirrored
     // as there would be gaps in the monitorID sequence
     int currentMonitorIndex = -1;
-    for (size_t i = 0; i < g_pCompositor->m_monitors.size(); i++) {
-        if (g_pCompositor->m_monitors[i] == monitor) {
+    for (size_t i = 0; i < g_pCompositor->m_vMonitors.size(); i++) {
+        if (g_pCompositor->m_vMonitors[i] == monitor) {
             currentMonitorIndex = i;
             break;
         }
@@ -192,9 +192,9 @@ SDispatchResult changeMonitor(bool quiet, const std::string& value)
 
     int nextMonitorIndex = (monitorCount + currentMonitorIndex + delta) % monitorCount;
 
-    nextMonitor = g_pCompositor->m_monitors[nextMonitorIndex];
+    nextMonitor = g_pCompositor->m_vMonitors[nextMonitorIndex];
 
-    int nextWorkspaceID = nextMonitor->activeWorkspace->m_id;
+    int nextWorkspaceID = nextMonitor->activeWorkspace->m_iID;
 
     std::string result;
     if (quiet) {
@@ -231,19 +231,19 @@ SDispatchResult grabRogueWindows(const std::string& /*unused*/)
         return {.success = false, .error = "No active workspace found"};
     }
 
-    for (const auto& window : g_pCompositor->m_windows) {
+    for (const auto& window : g_pCompositor->m_vWindows) {
         // ignore unmapped and special windows
         if (!window->m_bIsMapped && !window->onSpecialWorkspace())
             continue;
 
-        auto const workspaceName = window->m_pWorkspace->m_name;
+        auto const workspaceName = window->m_pWorkspace->m_szName;
         auto const monitorID = window->m_pMonitor->ID;
 
         bool isInRogueWorkspace = !g_vMonitorWorkspaceMap.contains(monitorID) || // if the monitor is not mapped, the window is rogue
-                                  !std::ranges::any_of(g_vMonitorWorkspaceMap[monitorID], [&workspaceName](const auto& mappedWorkspaceName) { return workspaceName == mappedWorkspaceName; });
+                                  !std::ranges::any_of(g_vMonitorWorkspaceMap[monitorID], [workspaceName](const auto& mappedWorkspaceName) { return workspaceName == mappedWorkspaceName; });
         if (isInRogueWorkspace) {
             Debug::log(INFO, "[split-monitor-workspaces] Moving rogue window {} from workspace {} to workspace {}", window->m_szTitle.c_str(), workspaceName.c_str(),
-                       currentWorkspace->m_name.c_str());
+                       currentWorkspace->m_szName.c_str());
             g_pCompositor->moveWindowToWorkspaceSafe(window, currentWorkspace);
         }
     }
@@ -282,7 +282,7 @@ void mapMonitor(const PHLMONITOR& monitor) // NOLINT(readability-convert-member-
             Debug::log(INFO, "[split-monitor-workspaces] Moving workspace {} to monitor {}", workspaceName, monitor->szName);
             g_pCompositor->moveWorkspaceToMonitor(workspace, monitor);
             if (g_enablePersistentWorkspaces) {
-                workspace->m_persistent = true;
+                workspace->m_bPersistent = true;
             }
         }
     }
@@ -306,7 +306,7 @@ void unmapMonitor(const PHLMONITOR& monitor)
             PHLWORKSPACE workspace = g_pCompositor->getWorkspaceByName(workspaceName);
 
             if (workspace.get() != nullptr) {
-                workspace->m_persistent = false;
+                workspace->m_bPersistent = false;
             }
         }
         g_vMonitorWorkspaceMap.erase(monitor->ID);
@@ -332,7 +332,7 @@ void remapAllMonitors()
 {
     raiseNotification("[split-monitor-workspaces] Remapping workspaces...");
     unmapAllMonitors();
-    for (const PHLMONITOR& monitor : g_pCompositor->m_monitors) {
+    for (const PHLMONITOR& monitor : g_pCompositor->m_vMonitors) {
         mapMonitor(monitor);
     }
 }
